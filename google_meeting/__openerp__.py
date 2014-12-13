@@ -150,7 +150,7 @@ Contributors
         'view/menu_view.xml',
     ],
     'external_dependencies': {
-        'python': ['apiclient'],
+        'python': ['googleapiclient'],
     },
     'demo': [],
     'test': [],
