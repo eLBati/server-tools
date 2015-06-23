@@ -54,84 +54,98 @@ class super_calendar_configurator(models.Model):
         string='Lines',
     )
 
-    @api.multi
-    def generate_calendar_records(self):
-        configurator_ids = self.search([])
+    def _rebuild_configurator_line(self, configurator_id, line=None):
+        if not line:
+            return {}
         super_calendar_pool = self.env['super.calendar']
+        current_pool = self.env[line.name.model]
+        domain = line.domain and safe_eval(line.domain) or []
+        current_record_ids = current_pool.search(domain)
+        super_calendar_values = {}
+        
+        for cur_rec in current_record_ids:
+            f_user = line.user_field_id and line.user_field_id.name
+            f_descr = (line.description_field_id and
+                       line.description_field_id.name)
+            f_date_start = (line.date_start_field_id and
+                            line.date_start_field_id.name)
+            f_date_stop = (line.date_stop_field_id and
+                           line.date_stop_field_id.name)
+            f_duration = (line.duration_field_id and
+                          line.duration_field_id.name)
+            if (f_user and
+                    cur_rec[f_user] and
+                    cur_rec[f_user]._model._name != 'res.users'):
+                raise Exception(
+                    _('Error'),
+                    _("The 'User' field of record %s (%s) "
+                      "does not refer to res.users")
+                    % (cur_rec[f_descr], line.name.model))
 
-        # Remove old records
+            if (((f_descr and cur_rec[f_descr]) or line.description_code) and
+                    cur_rec[f_date_start]):
+                duration = False
+                if (not line.duration_field_id and
+                        line.date_stop_field_id and
+                        cur_rec[f_date_start] and
+                        cur_rec[f_date_stop]):
+                    date_start = datetime.strptime(
+                        cur_rec[f_date_start],
+                        tools.DEFAULT_SERVER_DATETIME_FORMAT
+                    )
+                    date_stop = datetime.strptime(
+                        cur_rec[f_date_stop],
+                        tools.DEFAULT_SERVER_DATETIME_FORMAT
+                    )
+                    date_diff = (date_stop - date_start)
+                    duration = date_diff.total_seconds() / 3600
+                elif line.duration_field_id:
+                    duration = cur_rec[f_duration]
+                if line.description_type != 'code':
+                    name = cur_rec[f_descr]
+                else:
+                    parse_dict = {'o': cur_rec}
+                    mytemplate = Template(line.description_code)
+                    name = mytemplate.render(**parse_dict)
+
+                super_calendar_values = {
+                    'name': name,
+                    'model_description': line.description,
+                    'date_start': cur_rec[f_date_start],
+                    'duration': duration,
+                    'user_id': (
+                        f_user and
+                        cur_rec[f_user] and
+                        cur_rec[f_user].id or
+                        False
+                    ),
+                    'configurator_id': configurator_id,
+                    'res_id': line.name.model+','+str(cur_rec['id']),
+                    'model_id': line.name.id,
+                }
+                super_calendar_pool.create(super_calendar_values)
+                self._logger.warning('>>>> super_calendar_values: {}'.format(super_calendar_values))
+
+    def _clear_super_calendar_records(self):
+        '''Remove old super_calendar records'''
+        super_calendar_pool = self.env['super.calendar']
         super_calendar_ids = super_calendar_pool.search([])
+        self._logger.warning('>>> UNLINKING: super_calendar_ids = {}'.format(super_calendar_ids))
         super_calendar_ids.unlink()
 
+    @api.multi
+    def generate_calendar_records(self):
+        '''At every CRON execution, every 'super calendar' data is deleted
+        and regenerated again.
+        '''
+        # Remove old records
+        self._clear_super_calendar_records()
+
         # Rebuild all calendar records
+        configurator_ids = self.search([])
         for configurator in configurator_ids:
             for line in configurator.line_ids:
-                current_pool = self.env[line.name.model]
-                domain = line.domain and safe_eval(line.domain) or []
-                current_record_ids = current_pool.search(domain)
-
-                for cur_rec in current_record_ids:
-                    f_user = line.user_field_id and line.user_field_id.name
-                    f_descr = (line.description_field_id and
-                               line.description_field_id.name)
-                    f_date_start = (line.date_start_field_id and
-                                    line.date_start_field_id.name)
-                    f_date_stop = (line.date_stop_field_id and
-                                   line.date_stop_field_id.name)
-                    f_duration = (line.duration_field_id and
-                                  line.duration_field_id.name)
-                    if (f_user and
-                            cur_rec[f_user] and
-                            cur_rec[f_user]._model._name != 'res.users'):
-                        raise Exception(
-                            _('Error'),
-                            _("The 'User' field of record %s (%s) "
-                              "does not refer to res.users")
-                            % (cur_rec[f_descr], line.name.model))
-
-                    if (((f_descr and cur_rec[f_descr]) or
-                            line.description_code) and
-                            cur_rec[f_date_start]):
-                        duration = False
-                        if (not line.duration_field_id and
-                                line.date_stop_field_id and
-                                cur_rec[f_date_start] and
-                                cur_rec[f_date_stop]):
-                            date_start = datetime.strptime(
-                                cur_rec[f_date_start],
-                                tools.DEFAULT_SERVER_DATETIME_FORMAT
-                            )
-                            date_stop = datetime.strptime(
-                                cur_rec[f_date_stop],
-                                tools.DEFAULT_SERVER_DATETIME_FORMAT
-                            )
-                            date_diff = (date_stop - date_start)
-                            duration = date_diff.total_seconds() / 3600
-                        elif line.duration_field_id:
-                            duration = cur_rec[f_duration]
-                        if line.description_type != 'code':
-                            name = cur_rec[f_descr]
-                        else:
-                            parse_dict = {'o': cur_rec}
-                            mytemplate = Template(line.description_code)
-                            name = mytemplate.render(**parse_dict)
-
-                        super_calendar_values = {
-                            'name': name,
-                            'model_description': line.description,
-                            'date_start': cur_rec[f_date_start],
-                            'duration': duration,
-                            'user_id': (
-                                f_user and
-                                cur_rec[f_user] and
-                                cur_rec[f_user].id or
-                                False
-                            ),
-                            'configurator_id': configurator.id,
-                            'res_id': line.name.model+','+str(cur_rec['id']),
-                            'model_id': line.name.id,
-                        }
-                        super_calendar_pool.create(super_calendar_values)
+                self._rebuild_configurator_line(configurator.id, line)
         self._logger.info('Calendar generated')
         return True
 
