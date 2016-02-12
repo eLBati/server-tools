@@ -31,35 +31,21 @@ class IrModel(orm.Model):
         }
 
     def _patch_quick_create(self, cr, ids):
-
-        def _wrap_name_create():
-            def wrapper(self, cr, uid, name, context=None):
+        def _wrap_name_create(self, cr, uid, name, context=None):
+            if self.pool.get(self._name).avoid_quick_create:
                 raise orm.except_orm(
                     _('Error'),
                     _("Can't create quickly. Opening create form"))
-            return wrapper
+            else:
+                return _wrap_name_create.origin(
+                    self, cr, uid, name, context=context)
 
         for model in self.browse(cr, SUPERUSER_ID, ids):
-            if model.avoid_quick_create:
-                model_name = model.model
-                model_obj = self.pool.get(model_name)
-                if model_obj and not hasattr(model_obj, 'check_quick_create'):
-                    model_obj._patch_method('name_create', _wrap_name_create())
-                    model_obj.check_quick_create = True
+            self.pool.get(model.model)._patch_method(
+                'name_create', _wrap_name_create)
+
         return True
 
     def _register_hook(self, cr):
         self._patch_quick_create(cr, self.search(cr, SUPERUSER_ID, []))
         return super(IrModel, self)._register_hook(cr)
-
-    def create(self, cr, uid, vals, context=None):
-        res_id = super(IrModel, self).create(cr, uid, vals, context=context)
-        self._patch_quick_create(cr, [res_id])
-        return res_id
-
-    def write(self, cr, uid, ids, vals, context=None):
-        if isinstance(ids, (int, long)):
-            ids = [ids]
-        res = super(IrModel, self).write(cr, uid, ids, vals, context=context)
-        self._patch_quick_create(cr, ids)
-        return res
