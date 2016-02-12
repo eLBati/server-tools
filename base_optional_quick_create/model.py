@@ -31,18 +31,20 @@ class IrModel(orm.Model):
         }
 
     def _patch_quick_create(self, cr, ids):
-        def _wrap_name_create(self, cr, uid, name, context=None):
-            if self.pool.get(self._name).avoid_quick_create:
-                raise orm.except_orm(
-                    _('Error'),
-                    _("Can't create quickly. Opening create form"))
-            else:
-                return _wrap_name_create.origin(
-                    self, cr, uid, name, context=context)
+        def _wrap_name_create(ir_model):
+            def wrapper(self, cr, uid, name, context=None):
+                if ir_model.avoid_quick_create:
+                    raise orm.except_orm(
+                        _('Error'),
+                        _("Can't create quickly. Opening create form"))
+                else:
+                    return _wrap_name_create.origin(
+                        self, cr, uid, name, context=context)
+            return wrapper
 
         for model in self.browse(cr, SUPERUSER_ID, ids):
             self.pool.get(model.model)._patch_method(
-                'name_create', _wrap_name_create)
+                'name_create', _wrap_name_create(model))
 
         return True
 
