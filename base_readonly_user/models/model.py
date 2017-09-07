@@ -3,49 +3,54 @@
 # Copyright 2017 Alex Comba - Agile Business Group
 # License GPL-3.0 or later (http://www.gnu.org/licenses/gpl).
 
-from openerp import api, models, SUPERUSER_ID, _
-from openerp.exceptions import Warning
+from openerp.osv import orm
+from openerp import SUPERUSER_ID, _
+# from openerp.exceptions import Warning
 
 
-class IrModel(models.Model):
+class IrModel(orm.Model):
     _inherit = 'ir.model'
 
     def _register_hook(self, cr):
 
         def make_create():
-            @api.model
-            def create(self, vals):
-                user = self.env.user
+            def create(cr, uid, vals, context=None, **kwargs):
+                user = self.pool['res.users'].browse(
+                    cr, uid, uid, context=context)
                 if user.readonly_user:
-                    raise Warning(
+                    raise orm.except_orm(
                         _('Error'),
                         _("Readonly user can't create records"))
                 else:
-                    return create.origin(vals)
+                    return create.origin(
+                        cr, uid, vals, context=context, **kwargs)
 
         def make_write():
-            @api.multi
-            def write(self, vals):
-                user = self.env.user
+            def write(cr, uid, ids, vals, context=None, **kwargs):
+                user = self.pool['res.users'].browse(
+                    cr, uid, uid, context=context)
                 if user.readonly_user:
-                    raise Warning(
+                    raise orm.except_orm(
                         _('Error'),
-                        _("Readonly user can't create records"))
+                        _("Readonly user can't write records"))
                 else:
-                    return write.origin(vals)
+                    return write.origin(
+                        cr, uid, ids, vals, context=context, **kwargs)
 
         def make_unlink():
-            @api.multi
-            def unlink(self):
-                user = self.env.user
+            def unlink(cr, uid, ids, context=None, **kwargs):
+                user = self.pool['res.users'].browse(
+                    cr, uid, uid, context=context)
                 if user.readonly_user:
-                    raise Warning(
+                    raise orm.except_orm(
                         _('Error'),
-                        _("Readonly user can't create records"))
+                        _("Readonly user can't unlink records"))
                 else:
-                    return unlink.origin()
+                    return unlink.origin(
+                        cr, uid, ids, context=context, **kwargs)
 
-        for model in self.browse(cr, SUPERUSER_ID, []):
+        ids = self.search(cr, SUPERUSER_ID, [])
+        for model in self.browse(cr, SUPERUSER_ID, ids):
             Model = self.pool.get(model.model)
             if Model:
                 Model._patch_method('create', make_create())
