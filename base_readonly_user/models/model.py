@@ -1,60 +1,54 @@
 # -*- coding: utf-8 -*-
 # Copyright 2017 Lorenzo Battistini - Agile Business Group
+# Copyright 2017 Alex Comba - Agile Business Group
 # License GPL-3.0 or later (http://www.gnu.org/licenses/gpl).
 
-from openerp.osv import orm
-from openerp import SUPERUSER_ID
-from openerp.tools.translate import _
+from openerp import api, models, SUPERUSER_ID, _
+from openerp.exceptions import Warning
 
 
-class IrModel(orm.Model):
+class IrModel(models.Model):
     _inherit = 'ir.model'
 
     def _register_hook(self, cr):
-        ids = self.search(cr, SUPERUSER_ID, [])
-        for model in self.browse(cr, SUPERUSER_ID, ids):
-            model_name = model.model
-            model_obj = self.pool.get(model_name)
-            if model_obj:
-                model_obj.create = self._wrap_create(model_obj.create)
-                model_obj.write = self._wrap_write(model_obj.write)
-                model_obj.unlink = self._wrap_unlink(model_obj.unlink)
+
+        def make_create():
+            @api.model
+            def create(self, vals):
+                user = self.env.user
+                if user.readonly_user:
+                    raise Warning(
+                        _('Error'),
+                        _("Readonly user can't create records"))
+                else:
+                    return create.origin(vals)
+
+        def make_write():
+            @api.multi
+            def write(self, vals):
+                user = self.env.user
+                if user.readonly_user:
+                    raise Warning(
+                        _('Error'),
+                        _("Readonly user can't create records"))
+                else:
+                    return write.origin(vals)
+
+        def make_unlink():
+            @api.multi
+            def unlink(self):
+                user = self.env.user
+                if user.readonly_user:
+                    raise Warning(
+                        _('Error'),
+                        _("Readonly user can't create records"))
+                else:
+                    return unlink.origin()
+
+        for model in self.browse(cr, SUPERUSER_ID, []):
+            Model = self.pool.get(model.model)
+            if Model:
+                Model._patch_method('create', make_create())
+                Model._patch_method('write', make_write())
+                Model._patch_method('unlink', make_unlink())
         return super(IrModel, self)._register_hook(cr)
-
-    def create(self, cr, uid, vals, context=None):
-        res_id = super(IrModel, self).create(cr, uid, vals, context=context)
-        self._register_hook(cr)
-        return res_id
-
-    def _wrap_create(self, old_create):
-        def wrapper(cr, uid, vals, context=None, **kwargs):
-            user = self.pool['res.users'].browse(cr, uid, uid, context=context)
-            if user.readonly_user:
-                raise orm.except_orm(
-                    _('Error'),
-                    _("Readonly user can't create records"))
-            else:
-                return old_create(cr, uid, vals, context=context, **kwargs)
-        return wrapper
-
-    def _wrap_write(self, old_write):
-        def wrapper(cr, uid, ids, vals, context=None, **kwargs):
-            user = self.pool['res.users'].browse(cr, uid, uid, context=context)
-            if user.readonly_user:
-                raise orm.except_orm(
-                    _('Error'),
-                    _("Readonly user can't write records"))
-            else:
-                return old_write(cr, uid, ids, vals, context=context, **kwargs)
-        return wrapper
-
-    def _wrap_unlink(self, old_unlink):
-        def wrapper(cr, uid, ids, context=None, **kwargs):
-            user = self.pool['res.users'].browse(cr, uid, uid, context=context)
-            if user.readonly_user:
-                raise orm.except_orm(
-                    _('Error'),
-                    _("Readonly user can't delete records"))
-            else:
-                return old_unlink(cr, uid, ids, context=context, **kwargs)
-        return wrapper
