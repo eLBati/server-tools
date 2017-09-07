@@ -11,10 +11,10 @@ from openerp import SUPERUSER_ID, _
 class IrModel(orm.Model):
     _inherit = 'ir.model'
 
-    def _register_hook(self, cr):
+    def _patch_readonly_user(self, cr, ids):
 
         def make_create():
-            def create(cr, uid, vals, context=None, **kwargs):
+            def create(self, cr, uid, vals, context=None, **kwargs):
                 user = self.pool['res.users'].browse(
                     cr, uid, uid, context=context)
                 if user.readonly_user:
@@ -23,10 +23,11 @@ class IrModel(orm.Model):
                         _("Readonly user can't create records"))
                 else:
                     return create.origin(
-                        cr, uid, vals, context=context, **kwargs)
+                        self, cr, uid, vals, context=context, **kwargs)
+            return create
 
         def make_write():
-            def write(cr, uid, ids, vals, context=None, **kwargs):
+            def write(self, cr, uid, ids, vals, context=None, **kwargs):
                 user = self.pool['res.users'].browse(
                     cr, uid, uid, context=context)
                 if user.readonly_user:
@@ -35,10 +36,11 @@ class IrModel(orm.Model):
                         _("Readonly user can't write records"))
                 else:
                     return write.origin(
-                        cr, uid, ids, vals, context=context, **kwargs)
+                        self, cr, uid, ids, vals, context=context, **kwargs)
+            return write
 
         def make_unlink():
-            def unlink(cr, uid, ids, context=None, **kwargs):
+            def unlink(self, cr, uid, ids, context=None, **kwargs):
                 user = self.pool['res.users'].browse(
                     cr, uid, uid, context=context)
                 if user.readonly_user:
@@ -47,9 +49,9 @@ class IrModel(orm.Model):
                         _("Readonly user can't unlink records"))
                 else:
                     return unlink.origin(
-                        cr, uid, ids, context=context, **kwargs)
+                        self, cr, uid, ids, context=context, **kwargs)
+            return unlink
 
-        ids = self.search(cr, SUPERUSER_ID, [])
         for model in self.browse(cr, SUPERUSER_ID, ids):
             Model = self.pool.get(model.model)
             if Model:
@@ -57,3 +59,12 @@ class IrModel(orm.Model):
                 Model._patch_method('write', make_write())
                 Model._patch_method('unlink', make_unlink())
         return super(IrModel, self)._register_hook(cr)
+
+    def _register_hook(self, cr):
+        self._patch_readonly_user(cr, self.search(cr, SUPERUSER_ID, []))
+        return super(IrModel, self)._register_hook(cr)
+
+    def create(self, cr, uid, vals, context=None):
+        res_id = super(IrModel, self).create(cr, uid, vals, context=context)
+        self._patch_readonly_user(cr, [res_id])
+        return res_id
